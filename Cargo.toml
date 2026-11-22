@@ -1,0 +1,22 @@
+[package]
+name = "ida-connect"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.23.1"
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+libc = "0.2.191"
+nix = { version = "0.32.0", features = ["term", "process", "fs", "signal", "ioctl"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt", "net", "time", "process", "io-util", "macros", "sync", "fs", "signal"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots", "handshake"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

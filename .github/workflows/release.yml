@@ -1,0 +1,73 @@
+# Baut ida-connect (statisch, musl) für x86_64, aarch64 und armv7, veröffentlicht die Binaries als GitHub-Release
+# (install.sh lädt …/releases/latest/download/ida-connect-<arch> und richtet den Systemdienst ein).
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "Cargo.toml", "Cargo.lock", ".github/workflows/release.yml"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --release -- -D warnings
+      - run: cargo test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, name: x86_64 }
+          - { target: aarch64-unknown-linux-musl, name: aarch64 }
+          - { target: armv7-unknown-linux-musleabihf, name: armv7 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: Swatinem/rust-cache@v2
+        with: { key: "${{ matrix.target }}" }
+      - uses: mlugg/setup-zig@v2
+      - run: cargo install cargo-zigbuild --locked
+      - name: Version 0.1.<Lauf>
+        run: sed -i "0,/^version = \"0.1.0\"/s//version = \"0.1.${{ github.run_number }}\"/" Cargo.toml
+      - run: cargo zigbuild --release --target ${{ matrix.target }}
+      - run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/ida-connect dist/ida-connect-${{ matrix.name }}
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with: { name: "bin-${{ matrix.name }}", path: dist/ }
+
+  release:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - run: chmod +x dist/* && ls -la dist
+      - name: GitHub-Release (die neueste ist „latest“)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="0.1.${{ github.run_number }}"
+          gh release create "v${V}" dist/ida-connect-x86_64 dist/ida-connect-aarch64 dist/ida-connect-armv7 install.sh \
+            --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" --latest --title "ida-connect ${V}" \
+            --notes "Installieren: curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sudo sh"
