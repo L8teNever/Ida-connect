@@ -32,6 +32,12 @@ pub struct Config {
     /// Neue Versionen von GitHub selbst installieren (alle 6 Stunden nachsehen)
     #[serde(default = "yes")]
     pub auto_update: bool,
+    /// Lüfter-Einstellungen (id → Modus/Stärke/Kurve); Lüfter ohne Eintrag laufen automatisch. Siehe fan.rs
+    #[serde(default)]
+    pub fans: std::collections::HashMap<String, crate::fan::FanCfg>,
+    /// Selbstheilungs-Regeln („wenn X down, dann Neustart“). Siehe heal.rs
+    #[serde(default)]
+    pub heal: Vec<crate::heal::Rule>,
 }
 
 fn yes() -> bool {

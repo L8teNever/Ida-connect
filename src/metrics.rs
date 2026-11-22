@@ -118,7 +118,7 @@ impl Sampler {
             "mem": [(mem_total.saturating_sub(mem_avail)) * 1024, mem_total * 1024],
             "swap": [(swap_total.saturating_sub(g("SwapFree"))) * 1024, swap_total * 1024],
             "load": la, "up": up as u64, "procs": procs,
-            "temps": temps, "fans": fans, "disks": disks(), "net": net, "io": io,
+            "undervolt": crate::health::undervoltage_now(), "temps": temps, "fans": fans, "disks": disks(), "net": net, "io": io,
         })
     }
 }
@@ -181,7 +181,7 @@ pub fn disks() -> Vec<Value> {
 }
 
 /// Temperaturen (°C) und Lüfter (U/min) aus thermal_zone und hwmon.
-fn sensors(sys: &str) -> (Vec<Value>, Vec<Value>) {
+pub fn sensors(sys: &str) -> (Vec<Value>, Vec<Value>) {
     let mut temps = Vec::new();
     let mut fans = Vec::new();
     let mut names = std::collections::HashSet::new();

@@ -331,11 +331,17 @@ async fn session(
     let meter = tokio::spawn(async move {
         let mut s = metrics::Sampler::new();
         let mut since_info = 0u64;
+        let mut heal_seq = crate::heal::current_seq(); // ältere Ereignisse stehen nur in heal_list
         loop {
             let secs = iv.load(std::sync::atomic::Ordering::Relaxed).clamp(1, 300);
             tokio::time::sleep(Duration::from_secs(secs)).await;
             if mtx.send(s.sample().to_string()).is_err() {
                 break;
+            }
+            let ev = crate::heal::events_since(heal_seq);
+            if let Some(last) = ev.last() {
+                heal_seq = last["seq"].as_u64().unwrap_or(heal_seq);
+                let _ = mtx.send(json!({"t": "heal", "events": ev}).to_string());
             }
             since_info += secs;
             if since_info >= 600 {
@@ -474,6 +480,17 @@ async fn session(
                             let mut c = cf.lock().unwrap();
                             c.auto_update = on;
                             c.save().map(|_| json!({"auto_update": on})).map_err(|e| e.to_string())
+                        }
+                        "heal_list" => Ok(crate::heal::list(&cf)),
+                        "heal_set" => serde_json::from_value::<crate::heal::Rule>(v["rule"].clone())
+                            .map_err(|e| format!("ungültige Regel: {e}"))
+                            .and_then(|r| crate::heal::set(&cf, r)),
+                        "heal_delete" => crate::heal::delete(&cf, v["rule_id"].as_str().unwrap_or("")),
+                        "heal_check" => crate::heal::check_now(&cf, v["rule_id"].as_str().unwrap_or("")).await,
+                        "fan_list" => Ok(crate::fan::list(&cf)),
+                        "fan_set" => {
+                            let c = serde_json::from_value::<crate::fan::FanCfg>(v.clone()).map_err(|e| format!("ungültige Angaben: {e}"));
+                            c.and_then(|c| crate::fan::set(&cf, v["fan"].as_str().unwrap_or(""), c))
                         }
                         _ => ops::handle(&op, &v).await,
                     };

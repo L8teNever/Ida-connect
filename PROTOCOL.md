@@ -66,6 +66,38 @@ route ("mesh" | "public" – über welchen Weg das Gerät gerade verbunden ist),
 | `update_check` | – | `current, latest, available, checked, error` – fragt GitHub (`…/releases/latest`) |
 | `set_auto_update` | `on` (bool) | `auto_update` – neue Versionen selbst installieren (alle 6 Stunden nachsehen) |
 | `info` | – | wie `info` |
+| `heal_list` | – | `rules: [{id, name, enabled, check, target, action, cmd, interval, fails, cooldown, max_per_hour, state}]`, `events` (letzte 50) |
+| `heal_set` | `rule` (ohne `id` = neu, mit `id` = ändern) | wie `heal_list` |
+| `heal_delete` | `rule_id` | wie `heal_list` |
+| `heal_check` | `rule_id` | `{ok, error?}` – Prüfung jetzt ausführen, ohne Aktion |
+| `health` | – | Gesundheitsbericht, s. u. |
+| `fan_list` | – | `fans: [{id, name, rpm, percent, config}]` (nur Lüfter mit beschreibbarem PWM, hwmon `pwmN`), `sensors: [Name]` (mögliche Fühler für die Kurve) |
+| `fan_set` | `fan` (Lüfter-id), `mode` (`auto` \| `fixed` \| `curve`), `percent` (0–100, bei `fixed`), `curve` (`[[°C, %], …]`, 2–20 Punkte, bei `curve`), `sensor?` (leer = heißester Fühler) | wie `fan_list` |
+
+`health`: `{status: ok|warn|fail, problems: [Text], smart, cards, filesystems, power}`
+* `smart`: `{available, hint?, devices: [{name, type, model, serial, size, rotational, passed, temp, power_on_hours, wear_used?, ata?{reallocated, pending, uncorrectable, crc_errors, life_left}, nvme?{percentage_used, available_spare, media_errors, …}, status, problems, standby?}]}` –
+  braucht `smartctl` (Paket smartmontools; fehlt es: `available:false` + `hint`). Schlafende Platten werden nicht geweckt (`standby:true`).
+* `cards`: SD/eMMC (`/sys/block/mmcblk*`): `{name, kind (SD|eMMC), model, size, written_since_boot, wear_known, wear_used (%), pre_eol, status}`.
+  Verschleiß melden nur eMMC (`life_time`); normale SD-Karten nicht (`wear_known:false`) – dann zählen Fehler und Schreibmenge.
+* `filesystems`: `{mounts: [{device, mount, type, read_only, errors (ext4-Fehlerzähler), status}], kernel_log: [Zeilen mit I/O-, ext4-, mmc-Fehlern]}`.
+  `/` nur lesbar = `fail` (typisch nach Dateisystemfehlern).
+* `power` (nur Raspberry Pi, sonst `null`): `vcgencmd get_throttled` entschlüsselt: `undervoltage`, `freq_capped`, `throttled`, `soft_temp_limit` und je `…_seen` (seit dem Start), `raw`.
+  Zusätzlich steht in jeder Messung `m.undervolt` (bool|null, Pi: Unterspannung gerade jetzt).
+
+Selbstheilung (`heal_*`): Regel „wenn `check` auf `target` fehlschlägt, dann `action`“.
+* `check`: `container` (läuft, bei Healthcheck auch nicht `unhealthy`; Name), `service` (systemd-Dienst), `http` (URL, per curl, Erfolg = 2xx/3xx), `tcp` (`host:port`), `command` (Shell-Befehl, Exit-Code 0 = gesund).
+* `action`: `restart` (nur bei `container`/`service`: `docker restart` bzw. `systemctl restart`) oder `command` (Shell-Befehl `cmd`, als root).
+* Schutz: erst nach `fails` Fehlschlägen in Folge (Standard 3, Prüfung alle `interval` s, Standard 30), zwischen zwei Aktionen mindestens `cooldown` s (300),
+  höchstens `max_per_hour` Aktionen pro Stunde (3) – danach `state.status = gave_up`, bis die Prüfung wieder klappt. Regeln liegen in der Config, die Prüfung läuft auch ohne Verbindung zu Health.
+* `state.status`: `unknown`, `ok`, `failing`, `healing` (Aktion lief, wartet auf Erholung), `gave_up`, `disabled`.
+* Ereignisse kommen zusätzlich als `{"t":"heal","events":[{seq, ts, rule, name, kind (action|recovered|gave_up), ok, msg}]}` (Gerät → Health, mit den Messwerten gesendet).
+* Ein bewusst gestoppter Container wird bei einer aktiven Regel wieder gestartet – dafür die Regel deaktivieren (`enabled:false`).
+
+(`id` ist in Anfragen die Anfrage-Nummer – deshalb heißen die Felder `fan` und `rule_id`.)
+
+Lüfter: `config` = `{mode, percent, curve, sensor}`. Der Agent speichert die Einstellung in der Config und regelt Kurven alle 3 Sekunden
+(linear zwischen den Punkten, unter/über den Endpunkten deren Wert; ist keine Temperatur lesbar → 100 %). `auto` gibt den Lüfter an das Gerät
+zurück (`pwmN_enable` wie vorher), das passiert auch, wenn der Dienst beendet wird.
 
 Pfade sind immer absolute Pfade auf dem Gerät.
 

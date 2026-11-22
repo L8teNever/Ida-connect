@@ -29,6 +29,7 @@ pub async fn handle(op: &str, r: &Value) -> Result<Value, String> {
         "mesh_status" => Ok(mesh_status().await),
         "update" => crate::update::install().await,
         "update_check" => Ok(crate::update::check().await),
+        "health" => Ok(crate::health::report().await),
         "info" => Ok(crate::metrics::info(mesh_status().await)),
         _ => Err(format!("unbekannte Operation {op}")),
     }

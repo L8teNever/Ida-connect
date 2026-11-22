@@ -1,6 +1,9 @@
 //! ida-connect – kleiner Agent für IDA Health: schickt Messwerte, gibt Shell, Dateien und Docker frei (nur über Health),
 //! lokale Seite auf Port 1111 zum Koppeln, optional Cloudflare Mesh. Siehe README.md und PROTOCOL.md.
 mod config;
+mod fan;
+mod health;
+mod heal;
 mod host;
 mod link;
 mod metrics;
@@ -127,6 +130,8 @@ fn run() {
             tokio::spawn(web::serve(listen, cfg.clone(), state.clone(), wake.clone()));
         }
         tokio::spawn(update::auto_loop(cfg.clone(), state.clone()));
+        tokio::spawn(fan::run(cfg.clone()));
+        tokio::spawn(heal::run_loop(cfg.clone()));
         let l = tokio::spawn(link::run(cfg, state, wake));
         tokio::select! {
             _ = l => {},
@@ -135,6 +140,7 @@ fn run() {
                 if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) { s.recv().await; }
             } => {},
         }
+        fan::restore(); // Lüfter wieder dem Gerät überlassen
     });
 }
 
