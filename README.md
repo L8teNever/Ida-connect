@@ -4,7 +4,7 @@ Kleiner Agent (Rust, ~1,2 MB, ein paar MB RAM) für **IDA Health**. Auf einem Ge
 
 * schickt Messwerte an IDA Health: CPU (gesamt + je Kern), RAM/Swap, Last, Platten (Belegung + Durchsatz), Temperaturen,
   Lüfter, Netz je Schnittstelle. Gespeichert wird **nichts** auf dem Gerät – nur in Health.
-* **Gesundheitscheck** (Op `health`): SMART von SSD/HDD/NVMe (mit `smartmontools`), SD-/eMMC-Karte (Verschleiß wo gemeldet, Schreibmenge),
+* **Gesundheitscheck** (Op `health`): SMART von SSD/HDD/NVMe (`smartmontools` installiert das Install-Skript bei Installation und Update selbst mit), SD-/eMMC-Karte (Verschleiß wo gemeldet, Schreibmenge),
   Dateisystemfehler (read-only, ext4-Zähler, Kernel-Log) und beim Raspberry Pi Unterspannung/Drosselung (`vcgencmd get_throttled`).
 * **Selbstheilung**: Regeln wie „wenn Container X down ist, Neustart“ (auch Dienste, HTTP-Adressen, Ports, eigene Befehle). Mit Bremse gegen
   Dauerschleifen (mehrere Fehlschläge in Folge, Pause, höchstens N Aktionen pro Stunde). Läuft auf dem Gerät, auch wenn Health nicht erreichbar ist.

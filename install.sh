@@ -114,6 +114,25 @@ setup_mesh() {
 }
 MESH_OK=0
 
+# SMART-Werte von SSD/HDD (Gesundheitscheck in IDA Health) brauchen smartctl. Wird bei Installation UND Update nachgeholt, damit jedes
+# Gerät es hat. Bester Versuch: klappt es nicht (kein Paketmanager, kein Netz, apt belegt), läuft ida-connect trotzdem normal.
+ensure_smartctl() {
+  command -v smartctl >/dev/null 2>&1 && return 0
+  if command -v apt-get >/dev/null 2>&1; then
+    say "Installiere smartmontools (SMART-Gesundheit der Laufwerke) …"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o DPkg::Lock::Timeout=120 smartmontools >/dev/null 2>&1 \
+      || { apt-get update -qq -o DPkg::Lock::Timeout=120 >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o DPkg::Lock::Timeout=120 smartmontools >/dev/null 2>&1; }
+  elif command -v dnf >/dev/null 2>&1; then say "Installiere smartmontools …"; dnf install -y -q smartmontools >/dev/null 2>&1
+  elif command -v yum >/dev/null 2>&1; then say "Installiere smartmontools …"; yum install -y -q smartmontools >/dev/null 2>&1
+  elif command -v zypper >/dev/null 2>&1; then say "Installiere smartmontools …"; zypper -q --non-interactive install smartmontools >/dev/null 2>&1
+  elif command -v apk >/dev/null 2>&1; then say "Installiere smartmontools …"; apk add -q smartmontools >/dev/null 2>&1
+  elif command -v pacman >/dev/null 2>&1; then say "Installiere smartmontools …"; pacman -S --noconfirm --needed smartmontools >/dev/null 2>&1
+  else
+    return 0
+  fi
+  command -v smartctl >/dev/null 2>&1 || printf '\033[1;33m!\033[0m smartmontools ließ sich nicht installieren – SMART-Werte fehlen in Health (später: apt install smartmontools).\n' >&2 2>/dev/null || true
+}
+
 install_native() {
   command -v systemctl >/dev/null 2>&1 || die "Kein systemd gefunden – ida-connect läuft als systemd-Dienst."
   A=$(arch)
@@ -170,6 +189,7 @@ EOF
       exit 1
     fi
   fi
+  ensure_smartctl || true   # erst nach der Rollback-Prüfung: ein langsames apt darf sie nicht stören
   if [ -n "$OLD" ] && [ "$OLD" != "$NEW" ]; then
     say "Aktualisiert: $OLD → $NEW (Kopplung und Einstellungen in $CONF_DIR unverändert)."
   else
