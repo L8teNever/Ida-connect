@@ -58,6 +58,16 @@ Beim Update bleiben Kopplung, PIN und Einstellungen (`/etc/ida-connect/`) und de
 nicht, stellt das Install-Skript nach 15 Sekunden die alte wieder her. Nach einem Neustart des Geräts läuft der Dienst von selbst
 wieder (`systemctl enable`), und systemd gibt nach Abstürzen nie auf.
 
+**Über IDA Health (privates Repo):** Gekoppelte Geräte fragen zuerst Health nach der neuesten Version und laden Install-Skript und
+Programm von dort (`/api/v1/agent/release`, `/install.sh`, `/download/<arch>`, angemeldet mit der Kopplung). Health holt alles mit
+seinem GitHub-Token – das Repo darf privat sein, die Geräte brauchen keinen GitHub-Zugang. Ist Health nicht erreichbar oder älter,
+geht es wie früher direkt zu GitHub. Auch der Install-Befehl aus Health lädt dann über Health (der Einmal-Code gilt als Anmeldung).
+
+**Private Docker-Images:** Hat Health einen Token für Docker-Images (klassisch, nur `read:packages`), meldet es Geräte mit Docker beim Verbinden bei `ghcr.io` an
+(`docker login` als root, Op `docker_login`; nur wenn sich der Zugang geändert hat). `docker compose pull` geht dann mit privaten
+Images, Compose-Dateien bleiben gleich. Watchtower nutzt die Anmeldung, wenn `/root/.docker/config.json` in den Container
+eingebunden ist (`- /root/.docker/config.json:/config.json:ro`).
+
 ## Cloudflare Mesh
 
 Ist Health selbst im Mesh (IDA Health → Einstellungen → Cloudflare Mesh → „Health ins Mesh aufnehmen“), schickt es seine Mesh-Adresse

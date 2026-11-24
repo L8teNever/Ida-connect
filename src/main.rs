@@ -230,8 +230,7 @@ fn cli_update(flag: &str) {
         eprintln!("Bitte als root: sudo ida-connect update");
         std::process::exit(1);
     }
-    let url = update::install_url();
-    let script = format!("curl -fsSL '{url}' | sh -s -- --update");
+    let script = rt.block_on(update::script());
     let has_run = std::process::Command::new("sh").args(["-c", "command -v systemd-run"]).output().is_ok_and(|o| o.status.success());
     let st = if has_run {
         std::process::Command::new("systemd-run").args(["--quiet", "--pipe", "--wait", "--collect", "sh", "-c", &script]).status()

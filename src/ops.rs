@@ -28,11 +28,44 @@ pub async fn handle(op: &str, r: &Value) -> Result<Value, String> {
         "mesh_setup" => mesh_setup(&s("token")).await,
         "mesh_status" => Ok(mesh_status().await),
         "update" => crate::update::install().await,
+        "docker_login" => docker_login(&s("registry"), &s("user"), &s("token")).await,
         "update_check" => Ok(crate::update::check().await),
         "health" => Ok(crate::health::report().await),
         "info" => Ok(crate::metrics::info(mesh_status().await)),
         _ => Err(format!("unbekannte Operation {op}")),
     }
+}
+
+/// `docker login` mit dem Token von Health (private Images von ghcr.io laden – für `docker compose pull` und Watchtower).
+/// Ist der Zugang schon so eingetragen, passiert nichts. Kein Docker auf dem Gerät: übersprungen.
+async fn docker_login(registry: &str, user: &str, token: &str) -> Result<Value, String> {
+    let ok = |v: &str, extra: &str| !v.is_empty() && v.len() < 256 && v.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
+    if !ok(registry, ".-:") || !ok(user, "-_") || !ok(token, "_-") {
+        return Err("Registry, Benutzer oder Token ungültig".into());
+    }
+    if exec("command -v docker", "", 10).await?["code"].as_i64() != Some(0) {
+        return Ok(json!({"skipped": "kein Docker"}));
+    }
+    let want = B64.encode(format!("{user}:{token}"));
+    if let Ok(s) = std::fs::read_to_string(host::get().path("/root/.docker/config.json")?)
+        && let Ok(v) = serde_json::from_str::<Value>(&s)
+        && v["auths"][registry]["auth"].as_str() == Some(want.as_str())
+    {
+        return Ok(json!({"unchanged": true}));
+    }
+    let mut c = host::get().command(&["docker", "login", registry, "-u", user, "--password-stdin"]);
+    c.env("HOME", "/root").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+    let mut child = c.spawn().map_err(|e| format!("docker login: {e}"))?;
+    if let Some(mut si) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        si.write_all(token.as_bytes()).await.map_err(|e| e.to_string())?;
+    }
+    let out = tokio::time::timeout(Duration::from_secs(60), child.wait_with_output()).await.map_err(|_| "docker login: Abbruch nach 60 s".to_string())?
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("docker login: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(json!({"changed": true}))
 }
 
 fn cut(b: &[u8]) -> String {

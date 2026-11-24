@@ -11,6 +11,9 @@
 #   … | sudo sh -s -- --uninstall [--purge]                # entfernen (--purge: auch Kopplung/Config)
 #
 # Weitere Optionen: --server https://health.example.com (Adresse von IDA Health; steht im Befehl aus Health), --port 1111
+#
+# Das Programm kommt über IDA Health, wenn möglich (beim Koppeln mit --code, bei Updates des Agenten mit --health): Health holt es
+# mit seinem GitHub-Zugang – das Repo darf also privat sein. Geht das nicht, wird wie früher direkt von GitHub geladen.
 set -eu
 
 REPO="L8teNever/Ida-connect"
@@ -23,6 +26,8 @@ CODE=""
 PORT=""
 MESH_TOKEN=""
 MESH_SERVER=""
+HEALTH=""
+HDR=""
 ACTION=install
 PURGE=0
 
@@ -33,10 +38,11 @@ while [ $# -gt 0 ]; do
     --port) PORT="$2"; shift 2 ;;
     --mesh-token) MESH_TOKEN="$2"; shift 2 ;;
     --mesh-server) MESH_SERVER="$2"; shift 2 ;;
+    --health) HEALTH="$2"; shift 2 ;;
     --update) ACTION=update; shift ;;
     --uninstall) ACTION=uninstall; shift ;;
     --purge) PURGE=1; shift ;;
-    -h|--help) sed -n 2,13p "$0" 2>/dev/null || true; exit 0 ;;
+    -h|--help) sed -n 2,16p "$0" 2>/dev/null || true; exit 0 ;;
     *) echo "Unbekannte Option: $1" >&2; exit 2 ;;
   esac
 done
@@ -133,12 +139,42 @@ ensure_smartctl() {
   command -v smartctl >/dev/null 2>&1 || printf '\033[1;33m!\033[0m smartmontools ließ sich nicht installieren – SMART-Werte fehlen in Health (später: apt install smartmontools).\n' >&2 2>/dev/null || true
 }
 
+# Anmeldung bei Health für den Download: beim Koppeln der Einmal-Code, beim Update die Datei, die der Agent schreibt.
+# Als Datei an curl (-H @datei), damit nichts davon in der Prozessliste steht.
+health_auth() {
+  if [ -n "$HEALTH" ] && [ -r "$CONF_DIR/health-auth" ]; then
+    HDR="$CONF_DIR/health-auth"
+  elif [ -n "$CODE" ] && [ -n "$SERVER" ]; then
+    HEALTH="$SERVER"
+    HDR=$(mktemp)
+    chmod 600 "$HDR"
+    printf 'Authorization: Pair %s\n' "$CODE" > "$HDR"
+    TMP_HDR="$HDR"
+  fi
+}
+TMP_HDR=""
+
+download() {
+  # $1 = Ziel. Zuerst über Health, sonst GitHub.
+  health_auth
+  if [ -n "$HEALTH" ] && [ -n "$HDR" ]; then
+    say "Lade ida-connect ($A) über IDA Health …"
+    if curl -fsSL --retry 2 --connect-timeout 10 -H @"$HDR" -o "$1" "${HEALTH%/}/api/v1/agent/download/$A"; then
+      [ -z "$TMP_HDR" ] || rm -f "$TMP_HDR"
+      return 0
+    fi
+    [ -z "$TMP_HDR" ] || rm -f "$TMP_HDR"
+    printf '\033[1;33m!\033[0m Über Health ging es nicht – versuche GitHub.\n' >&2 2>/dev/null || true
+  fi
+  say "Lade ida-connect ($A) von GitHub …"
+  curl -fsSL --retry 3 -o "$1" "$DL/ida-connect-$A"
+}
+
 install_native() {
   command -v systemctl >/dev/null 2>&1 || die "Kein systemd gefunden – ida-connect läuft als systemd-Dienst."
   A=$(arch)
-  say "Lade ida-connect ($A) von GitHub …"
   TMP=$(mktemp)
-  curl -fsSL --retry 3 -o "$TMP" "$DL/ida-connect-$A" || { rm -f "$TMP"; die "Download fehlgeschlagen ($DL/ida-connect-$A)."; }
+  download "$TMP" || { rm -f "$TMP"; die "Download fehlgeschlagen (Health und $DL/ida-connect-$A). Ist das Repo privat, braucht Health einen GitHub-Token (Einstellungen → GitHub)."; }
   chmod 755 "$TMP"
   "$TMP" --version >/dev/null 2>&1 || { rm -f "$TMP"; die "Die geladene Datei läuft hier nicht."; }
   NEW=$("$TMP" --version | awk '{print $2}')
